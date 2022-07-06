@@ -1,38 +1,5 @@
 using Statistics, Optim, LinearAlgebra, Distributions, Printf
 
-# A regression model that has fixed effects and non-independent, heteroscedastic residual variation.
-abstract type FixedEffectsModel <: GLM.LinPredModel end
-
-struct FEModel <: FixedEffectsModel
-
-    # Covariates
-    X::AbstractMatrix
-
-    # Response values
-    y::AbstractVector
-
-    # Fitted value
-    Xbeta::AbstractVector
-
-    # Current parameter estimates
-    beta::AbstractVector
-
-    # Current residuals
-    resid::AbstractVector
-
-    # fex[j][k] contains indices for all observations with level k of fixed effects variable j.
-    fex::Vector{Vector{Vector{Int}}}
-
-    # Column of j of FE is the total of fixed effects for variable j.
-    FE::AbstractMatrix
-
-    # clx[j][k] contains indices for all observations with level k of clustering variable j.
-    clx::Vector{Vector{Vector{Int}}}
-end
-
-# TODO this is wrong if there are no fixed effects.
-StatsModels.drop_intercept(::Type{<:FEModel}) = true
-
 # Returns a list of indices corresponding to the positions in g with each distinct value.
 function indx(g::AbstractVector)
 
@@ -150,9 +117,7 @@ function StatsBase.fit!(m::FEModel)
 
     # Special case does not require fixed effects estimation.
     if length(m.fex) == 0
-        u, s, v = svd(m.X)
-        m.beta .= v * (diagm(s) \ (u' * m.y))
-        updateResid!(m)
+        @warn("Fixed effects model contains no fixed effects")
         return
     end
 
@@ -180,7 +145,7 @@ end
 """
 Return the estimated fixed effects.
 """
-function fixedeffects(m::FEModel)
+function fe_estimates(m::FEModel)
 
     updateFE!(m)
     fe = Vector{Vector{Float64}}()
@@ -213,10 +178,6 @@ function dsdb(m::FEModel, s0::AbstractMatrix)
 end
 
 function hess(m::FEModel, beta::AbstractVector; maxit::Int = 100, tol::Float64 = 1e-4)
-
-    if length(m.fex) == 0
-        return Symmetric(m.X' * m.X)
-    end
 
     n, p = size(m.X)
     nfe = length(m.fex)
@@ -274,7 +235,7 @@ function hess(m::FEModel, beta::AbstractVector; maxit::Int = 100, tol::Float64 =
 end
 
 # Get all distinct pairs of observations that fall into the same group of any cluster.
-function pclust(m::FEModel)
+function pclust(m::FRModel)
 
     ix = Set{Tuple{Int,Int}}()
 
@@ -305,6 +266,14 @@ function pclust(m::FEModel)
 end
 
 function vcov(m::FEModel; naive::Bool = false)
+    return vcov_helper(m, naive)
+end
+
+function vcov(m::REModel; naive::Bool = false)
+    return vcov_helper(m, naive)
+end
+
+function vcov_helper(m::FRModel, naive::Bool)
 
     hm = hess(m, m.beta)
     hmi = pinv(hm)
@@ -351,7 +320,7 @@ end
 
 coef(m::FEModel) = m.beta
 
-function StatsBase.coeftable(mm::FEModel; level::Real = 0.95)
+function StatsBase.coeftable(mm::FRModel; level::Real = 0.95)
     cc = coef(mm)
     se = sqrt.(diag(vcov(mm)))
     zz = cc ./ se
@@ -368,7 +337,7 @@ function StatsBase.coeftable(mm::FEModel; level::Real = 0.95)
     )
 end
 
-function fit(
+function StatsBase.fit(
     ::Type{FEModel},
     X::AbstractMatrix,
     y::AbstractVector,

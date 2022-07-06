@@ -51,7 +51,7 @@ function gendat(fixef, clust, mode)
         []
     end
 
-    m = FEModel(X, y, fex, clx)
+    m = length(fex) > 0 ? FEModel(X, y, fex, clx) : REModel(X, y, clx)
     fit!(m)
     return m
 end

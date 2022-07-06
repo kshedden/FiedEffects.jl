@@ -10,15 +10,44 @@ using Test,
 
 @testset "Check setup" begin
 
+    rng = StableRNG(123)
     y = [5, 6, 7, 8]
-    X = randn(4, 2)
+    X = randn(rng, 4, 2)
     fe = [[1, 1, 2, 2], [1, 2, 1, 2]]
     cl = [[1, 1, 2, 2]]
 
     fe = FEModel(X, y, fe, cl)
+    re = REModel(X, y, cl)
 
     @test isapprox(fe.fex, [[[1, 2], [3, 4]], [[1, 3], [2, 4]]])
     @test isapprox(fe.clx, [[[1, 2], [3, 4]]])
+    @test isapprox(re.clx, [[[1, 2], [3, 4]]])
+end
+
+@testset "Check random effects model" begin
+
+    rng = StableRNG(123)
+    n, p = 4000, 3
+    X = randn(rng, n, p)
+    m = 20 # group size
+    q = div(n, m) # number of groups
+    u = randn(q)
+    clx = [kron(ones(Int, m), 1:q), kron(1:q, ones(Int, m))]
+    e = randn(rng, q)[clx[1]] + randn(n)
+    y = X[:, 1] - X[:, 2] + e
+
+    df = DataFrame(:y => y)
+    for j = 1:p
+        df[:, Symbol("x$(j)")] = X[:, j]
+    end
+
+    fml = @formula(y ~ x1 + x2 + x3)
+    m = randomeffects(fml, df, clx)
+
+    @test isapprox(coef(m), Float64[0, 1, -1, 0], atol = 0.1, rtol = 0.1)
+
+    # TODO check vcov here
+    c = vcov(m)
 end
 
 @testset "Check estimated fixed effects" begin
@@ -42,7 +71,7 @@ end
     m = FEModel(X, y, fex, [])
     FixedEffects.updateFE!(m)
 
-    fee = fixedeffects(m)
+    fee = fe_estimates(m)
 
     for i in eachindex(fet)
         @test cor(fet[i], fee[i]) > 0.9
@@ -55,7 +84,7 @@ end
     end
 end
 
-@testset "Check gradient and Hessian" begin
+@testset "Check gradient and Hessian for fixed effects model" begin
 
     rng = StableRNG(123)
     n = 1000
@@ -86,7 +115,7 @@ end
     end
 end
 
-@testset "Check estimated parameters" begin
+@testset "Check estimated parameters for fixed effects model" begin
     rng = StableRNG(123)
     n = 10000
     p = 5
@@ -108,7 +137,7 @@ end
     @test isapprox(coef(m), Float64[0, 1, -1, 0, 0], rtol = 0.1, atol = 0.1)
 end
 
-@testset "Check estimated variance/covariance matrix" begin
+@testset "Check estimated variance/covariance matrix for fixed effects model" begin
     rng = StableRNG(123)
     n = 1000
     p = 5
